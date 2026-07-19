@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.flaggedAppsButton).setOnClickListener {
             startActivity(Intent(this, FlaggedAppsActivity::class.java))
         }
+        findViewById<Button>(R.id.allowUpdatesButton).setOnClickListener { openInstallUnknownAppsSettings() }
 
         val settings = getSharedPreferences(GuardianPrefs.SETTINGS_FILE, Context.MODE_PRIVATE)
         sentrySwitch.isChecked = settings.getBoolean(GuardianPrefs.KEY_SENTRY_MODE, false)
@@ -98,6 +99,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun openUsageAccessSettings() {
         startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:$packageName")))
+    }
+
+    private fun openInstallUnknownAppsSettings() {
+        startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
     }
 
     private fun startMonitoring() {

@@ -4,6 +4,20 @@ A simple Android app by gary23w that watches your own phone for spyware and stal
 
 It doesn't scan once and quit. It runs as a foreground service, takes a baseline of the phone's state, and alerts you the moment something changes that matches known spyware patterns or classic malware behavior.
 
+## Install
+
+Guardian isn't on the Play Store, it's installed the same way as any independently-distributed Android app:
+
+1. On your phone, open this link and download the APK: **[guardian.apk](https://github.com/gary23w/android-spyware-guardian/releases/latest/download/guardian.apk)**
+2. Android will ask to allow installs from whichever app you downloaded it with (Chrome, Files, etc.) — allow it for that app only, you can revoke it afterward if you want
+3. Open the downloaded file and tap Install
+
+That link always points at the latest release, so it stays the same across updates. After installing, open Guardian once, walk through the permission prompts, and it starts monitoring immediately.
+
+### Staying up to date
+
+Guardian checks GitHub once a day for a new release. If one exists, it downloads it automatically and sends a notification — tap it to install, same as any Android app update. This is never silent: Android's own install confirmation screen still shows up every time, Guardian just saves you the trip back to this page. For it to work, grant **Allow Updates** in the app (this opens Android's "install unknown apps" permission screen for Guardian specifically).
+
 ## What it actually watches
 
 Every 60 seconds, and immediately whenever a new app is installed:

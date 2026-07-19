@@ -115,6 +115,7 @@ class MonitorService : Service() {
             checkRootIndicators()
             checkNetworkAnomalies()
             checkPatchStaleness()
+            checkForAppUpdate()
         } catch (e: Exception) {
             AlertLog.write(this, "ERROR", "Check cycle failed: ${e.message}")
         }
@@ -450,6 +451,25 @@ class MonitorService : Service() {
         } catch (e: Exception) {
             AlertLog.write(this, "ERROR", "Patch staleness check failed: ${e.message}")
         }
+    }
+
+    private fun checkForAppUpdate() {
+        if (!UpdateChecker.shouldCheck(this)) return
+        val apkFile = UpdateChecker.check(this) ?: return
+        val installIntent = UpdateChecker.installIntent(this, apkFile)
+        val pending = PendingIntent.getActivity(
+            this, 9001, installIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notif = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Guardian update available")
+            .setContentText("Tap to install the latest version")
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .build()
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(9001, notif)
     }
 
     private fun isDecided(pkg: String): Boolean {
