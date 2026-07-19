@@ -135,6 +135,29 @@ object SecurityChecklist {
         },
 
         SecurityCheckItem(
+            "Security patch age",
+            "Most real-world compromise doesn't need a true zero-day, it exploits known vulnerabilities on phones that haven't installed the fix yet. Staying current on patches closes that window.",
+            "android.settings.SYSTEM_UPDATE_SETTINGS"
+        ) { _ ->
+            try {
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                val patchDate = sdf.parse(Build.VERSION.SECURITY_PATCH)
+                if (patchDate == null) {
+                    SecurityCheckResult(CheckStatus.INFO, "Could not read patch date")
+                } else {
+                    val days = (System.currentTimeMillis() - patchDate.time) / (1000L * 60 * 60 * 24)
+                    if (days > 90) {
+                        SecurityCheckResult(CheckStatus.WARNING, "Patch is $days days old (${Build.VERSION.SECURITY_PATCH})")
+                    } else {
+                        SecurityCheckResult(CheckStatus.SAFE, "Patch is $days days old (${Build.VERSION.SECURITY_PATCH})")
+                    }
+                }
+            } catch (e: Exception) {
+                SecurityCheckResult(CheckStatus.INFO, "Could not determine patch age")
+            }
+        },
+
+        SecurityCheckItem(
             "Root status",
             "A rooted device can hide malware from every app on it, including Guardian. This is a best-effort check only, a determined attacker can hide root from this kind of scan.",
             null

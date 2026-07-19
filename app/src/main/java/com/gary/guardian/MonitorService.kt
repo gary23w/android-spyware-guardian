@@ -114,6 +114,7 @@ class MonitorService : Service() {
             checkSimState()
             checkRootIndicators()
             checkNetworkAnomalies()
+            checkPatchStaleness()
         } catch (e: Exception) {
             AlertLog.write(this, "ERROR", "Check cycle failed: ${e.message}")
         }
@@ -429,6 +430,26 @@ class MonitorService : Service() {
             }
         }
         prefs.edit().putStringSet("net_usage_baseline", newRaw).apply()
+    }
+
+    private fun checkPatchStaleness() {
+        try {
+            val patchDateStr = Build.VERSION.SECURITY_PATCH
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val patchDate = sdf.parse(patchDateStr) ?: return
+            val daysStale = (System.currentTimeMillis() - patchDate.time) / (1000L * 60 * 60 * 24)
+            val thresholdDays = 90L
+            val lastAlertKey = "patch_staleness_last_alert"
+            val lastAlert = prefs.getLong(lastAlertKey, 0L)
+            val dayInMs = 24L * 60 * 60 * 1000
+            if (daysStale > thresholdDays && System.currentTimeMillis() - lastAlert > dayInMs) {
+                AlertLog.write(this, "HIGH", "Security patch is $daysStale days old ($patchDateStr)")
+                notifyInfo("Guardian Alert", "Security patch is $daysStale days old, check Settings for a system update")
+                prefs.edit().putLong(lastAlertKey, System.currentTimeMillis()).apply()
+            }
+        } catch (e: Exception) {
+            AlertLog.write(this, "ERROR", "Patch staleness check failed: ${e.message}")
+        }
     }
 
     private fun isDecided(pkg: String): Boolean {

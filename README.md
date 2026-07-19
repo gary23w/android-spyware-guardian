@@ -22,6 +22,7 @@ Every 60 seconds, and immediately whenever a new app is installed:
 - **SIM/carrier state changes** — operator, country, and SIM state, a rough proxy for SIM-swap or RCS provisioning hijack (see the RCS note below)
 - **Root indicators** — best-effort, evadable, but worth knowing about since root undermines every other check on this list
 - **Network usage anomalies** — a per-app sudden spike in background data usage over the last 24h (needs Usage Access granted, see below)
+- **Security patch staleness** — warns once your patch level passes 90 days old, since most real-world compromise rides on already-patched vulnerabilities on phones that haven't installed the fix yet, not true zero-days
 
 Anything new in any of these categories gets written to a log and, for the serious stuff, pops a notification.
 
@@ -46,6 +47,16 @@ This runs automatically the first time you install the app, and once every 24 ho
 Short version: Guardian does per-app data-usage anomaly detection (via `NetworkStatsManager`), not full packet capture. This was a deliberate call, not a shortcut.
 
 Android's `VpnService` API has no concept of "just watch this one thing" — once an app establishes a VPN with a default route, it becomes solely responsible for handling 100% of the device's IP traffic, or the phone loses internet. Every real project that does full packet capture (PCAPdroid, NetGuard, RethinkDNS) does the actual packet relay in native code (C or Go), not pure Kotlin, because getting a NAT/TCP engine wrong doesn't fail safe — it silently breaks connectivity for every app on the device until the VPN is disabled. That's not a risk worth taking inside a tool whose whole job is to be trusted running quietly in the background. If you want real packet-level inspection, run [PCAPdroid](https://github.com/emanuele-f/PCAPdroid) alongside Guardian.
+
+## On zero-days
+
+Guardian cannot detect a true zero-day exploit at the moment it happens. Nothing running as a normal app can — chains like Pegasus, Predator, and Operation Triangulation are specifically engineered to leave no trace visible to userspace, non-root observation. Real zero-day *mitigation* is a property of the OS and hardware (GrapheneOS's hardened memory allocator and sandboxing being the current state of the art), not something any installed app can retrofit.
+
+What Guardian does instead: track how stale your security patch level is, because the actual dominant real-world risk isn't a true zero-day, it's an already-patched vulnerability on a phone that hasn't installed the fix yet. And most real spyware, even chains that start with a zero-day, still needs a persistence mechanism to survive a reboot — which is exactly the category of thing Guardian's accessibility/permission/settings-diffing is built to catch. Guardian likely won't see the moment of infection for a genuine zero-day. It plausibly still catches the aftermath.
+
+## On tamper resistance (and why Guardian doesn't have any)
+
+Guardian makes no attempt to resist being uninstalled, disabled, or deleted, including by someone with root access. This is deliberate, not an oversight, for two reasons: first, if an attacker genuinely has root, no app-level defense can stop them from removing anything, so building one would be security theater. Second, and more importantly: the mechanisms that make an app hard to remove (blocking the uninstall dialog, hiding from the app list, using device-admin to lock out deactivation) are indistinguishable from how stalkerware behaves, the exact thing this app exists to detect. Guardian only defends against *accidental* background termination (foreground service, boot receiver, battery-optimization exemption) — never against its own removal by whoever owns the phone.
 
 ## A note on RCS and call/SMS interception
 
