@@ -39,6 +39,20 @@
         android:layout_marginTop="8dp"
         android:text="Sentry Mode (auto-request removal of flagged apps)" />
 
+    <Button
+        android:id="@+id/usageAccessButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Grant Usage Access (for network anomaly detection)" />
+
+    <Button
+        android:id="@+id/checklistButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Settings Walkthrough" />
+
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"

@@ -13,10 +13,21 @@ Every 60 seconds, and immediately whenever a new app is installed:
 - **Notification listener changes** — apps that can read the text of every notification you get
 - **Device admin changes**
 - **Dangerous permission grants** across every installed app (mic, camera, SMS, contacts, location, overlay, call, install-other-apps)
+- **Version downgrades** — an app suddenly reporting an older version than it had before, a known trick for reintroducing a patched vulnerability
 - **Known spyware indicator matches** — installed package IDs, APK file names, and APK file hashes checked against a live-updated threat feed (see below)
 - **Hidden apps with real permissions** — apps that hold dangerous permissions but have no icon in your app drawer, a common way spyware hides
+- **Security setting tampering** — changes to Play Protect / APK verifier / ADB install confirmation settings, the kind of thing an attacker with brief physical access weakens to make a sideload stick
+- **SMS and call interception receivers** — any non-system app (that isn't your default SMS or dialer app) registered to receive incoming SMS, outgoing calls, or phone state changes
+- **Default SMS/dialer app changes** — malware sometimes tries to become your default SMS handler to get broader access with fewer prompts
+- **SIM/carrier state changes** — operator, country, and SIM state, a rough proxy for SIM-swap or RCS provisioning hijack (see the RCS note below)
+- **Root indicators** — best-effort, evadable, but worth knowing about since root undermines every other check on this list
+- **Network usage anomalies** — a per-app sudden spike in background data usage over the last 24h (needs Usage Access granted, see below)
 
 Anything new in any of these categories gets written to a log and, for the serious stuff, pops a notification.
+
+## Settings Walkthrough
+
+Open the app and tap **Settings Walkthrough** for a plain-language, one-by-one review of the security-relevant settings on your phone: screen lock, USB debugging, unknown sources, Play Protect, accessibility services, notification access, device admins, Guardian's own battery exemption, usage access, and root status. Each item shows its current state and a button that opens the right system settings screen to fix it, with a fallback if your OEM doesn't expose that exact screen.
 
 ## Where the spyware list comes from
 
@@ -24,7 +35,17 @@ Guardian pulls the same indicator feeds used by [MVT (Mobile Verification Toolki
 
 This runs automatically the first time you install the app, and once every 24 hours after that, no action needed. Each run logs how many feeds it pulled and how many indicators it loaded.
 
-**Limitation, stated plainly:** this only catches spyware that's already been documented publicly. It won't catch something brand new that nobody has published indicators for yet, and it doesn't inspect network traffic (no VPN capture in this version), so domain indicators in the feed are stored but not actively matched yet.
+**Limitation, stated plainly:** this only catches spyware that's already been documented publicly. It won't catch something brand new that nobody has published indicators for yet.
+
+## On packet/network-level monitoring
+
+Short version: Guardian does per-app data-usage anomaly detection (via `NetworkStatsManager`), not full packet capture. This was a deliberate call, not a shortcut.
+
+Android's `VpnService` API has no concept of "just watch this one thing" — once an app establishes a VPN with a default route, it becomes solely responsible for handling 100% of the device's IP traffic, or the phone loses internet. Every real project that does full packet capture (PCAPdroid, NetGuard, RethinkDNS) does the actual packet relay in native code (C or Go), not pure Kotlin, because getting a NAT/TCP engine wrong doesn't fail safe — it silently breaks connectivity for every app on the device until the VPN is disabled. That's not a risk worth taking inside a tool whose whole job is to be trusted running quietly in the background. If you want real packet-level inspection, run [PCAPdroid](https://github.com/emanuele-f/PCAPdroid) alongside Guardian.
+
+## A note on RCS and call/SMS interception
+
+Guardian can and does detect the on-device signs of call/SMS interception: apps registered for SMS/call broadcasts that shouldn't be, and changes to your default SMS/dialer apps. What it cannot do is detect carrier-network-level RCS provisioning attacks (the kind of authentication weaknesses security researchers have published about GSMA's RCS Universal Profile) — those happen entirely on carrier infrastructure, before anything reaches a state your phone can see. The SIM/carrier-state check is a best-effort proxy for "something about your cellular connection changed unexpectedly," not a guarantee.
 
 ## What happens when something is flagged
 
@@ -48,13 +69,15 @@ One important thing to be honest about: **Android does not let any regular app s
 | `POST_NOTIFICATIONS` | Alert you when something is found |
 | `RECEIVE_BOOT_COMPLETED` | Restart monitoring after a reboot |
 | `REQUEST_DELETE_PACKAGES` | Open the uninstall prompt for flagged apps |
+| `READ_PHONE_STATE` | Read SIM operator/country/state for the SIM-swap-adjacent check — read-only, Guardian never reads call content or numbers |
+| `PACKAGE_USAGE_STATS` (special, granted manually) | Per-app network usage totals for anomaly detection |
 | `QUERY_ALL_PACKAGES` | See every installed app, not just ones Guardian has interacted with — required to actually check permissions and indicators app-wide |
 
-Guardian does not request accessibility service access, notification listener access, or camera/mic/SMS/location permissions for itself. It only reads *other* apps' permission grants through normal `PackageManager` APIs, which any app can do.
+Guardian does not request accessibility service access, notification listener access, or camera/mic/SMS/location permissions for itself. It only reads *other* apps' permission grants through normal `PackageManager` APIs, which any app can do. `READ_PHONE_STATE` is the one sensitive permission Guardian holds for itself, and it's used for exactly one read-only check.
 
 ## Staying alive in the background
 
-Foreground services can still get throttled by OEM battery managers (Samsung's especially). For reliable long-term monitoring, exempt Guardian from battery optimization:
+Foreground services can still get throttled by OEM battery managers (Samsung's especially). For reliable long-term monitoring, exempt Guardian from battery optimization — either through the Settings Walkthrough screen in the app, or manually:
 
 Settings → Apps → Guardian → Battery → Unrestricted
 
