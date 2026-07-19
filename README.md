@@ -18,6 +18,13 @@ That link always points at the latest release, so it stays the same across updat
 
 Guardian checks GitHub once a day for a new release. If one exists, it downloads it automatically and sends a notification — tap it to install, same as any Android app update. This is never silent: Android's own install confirmation screen still shows up every time, Guardian just saves you the trip back to this page. For it to work, grant **Allow Updates** in the app (this opens Android's "install unknown apps" permission screen for Guardian specifically).
 
+## Live log
+
+The log on the main screen updates itself the instant something happens, no need to tap Refresh — new entries push straight into the view as Guardian writes them, including Start/Stop taking effect immediately. Refresh still exists for a full manual reload if you want one. Two more buttons sit next to it:
+
+- **Export Log** — opens the share sheet so you can send the raw log file anywhere (email, a notes app, wherever)
+- **Clear Log** — wipes it and starts fresh
+
 ## What it actually watches
 
 Every 60 seconds, and immediately whenever a new app is installed:

@@ -11,28 +11,35 @@ import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
 import android.widget.Button
+import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var logView: TextView
+    private lateinit var logScroll: ScrollView
     private lateinit var sentrySwitch: Switch
+    private var logHasContent = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         logView = findViewById(R.id.logView)
+        logScroll = findViewById(R.id.logScroll)
         sentrySwitch = findViewById(R.id.sentrySwitch)
 
         findViewById<Button>(R.id.startButton).setOnClickListener { startMonitoring() }
         findViewById<Button>(R.id.stopButton).setOnClickListener { stopMonitoring() }
         findViewById<Button>(R.id.refreshButton).setOnClickListener { refreshLog() }
+        findViewById<Button>(R.id.exportLogButton).setOnClickListener { exportLog() }
+        findViewById<Button>(R.id.clearLogButton).setOnClickListener { clearLog() }
         findViewById<Button>(R.id.usageAccessButton).setOnClickListener { openUsageAccessSettings() }
         findViewById<Button>(R.id.checklistButton).setOnClickListener {
             startActivity(Intent(this, ChecklistActivity::class.java))
@@ -62,6 +69,21 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshLog()
+        AlertLog.setListener { line -> appendLiveLine(line) }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        AlertLog.setListener(null)
+    }
+
+    private fun appendLiveLine(line: String) {
+        if (!logHasContent) {
+            logView.text = ""
+            logHasContent = true
+        }
+        logView.append(line)
+        logScroll.post { logScroll.fullScroll(android.view.View.FOCUS_DOWN) }
     }
 
     private fun requestRuntimePermissions() {
@@ -119,6 +141,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshLog() {
-        logView.text = AlertLog.readAll(this)
+        val content = AlertLog.readAll(this)
+        logHasContent = content.isNotEmpty()
+        logView.text = if (logHasContent) content else "No alerts yet."
+        logScroll.post { logScroll.fullScroll(android.view.View.FOCUS_DOWN) }
+    }
+
+    private fun exportLog() {
+        val file = AlertLog.file(this)
+        if (!file.exists()) {
+            Toast.makeText(this, "Nothing to export yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, "Export Guardian log"))
+    }
+
+    private fun clearLog() {
+        AlertLog.clear(this)
+        refreshLog()
+        AlertLog.write(this, "INFO", "Log cleared by user")
     }
 }
