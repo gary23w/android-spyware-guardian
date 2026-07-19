@@ -437,6 +437,7 @@ class MonitorService : Service() {
     }
 
     private fun handleThreatDetected(pkg: String, reason: String) {
+        FlaggedApps.record(this, pkg, reason)
         if (isDecided(pkg)) return
 
         AlertLog.write(this, "CRITICAL", "THREAT: $pkg -> $reason")
@@ -448,6 +449,7 @@ class MonitorService : Service() {
 
         if (sentryOn) {
             AlertActionReceiver.markDecided(decisions, pkg)
+            FlaggedApps.setStatus(this, pkg, FlagStatus.REMOVAL_REQUESTED)
             AlertLog.write(this, "CRITICAL", "Sentry Mode: auto-launching removal for $pkg")
             launchUninstall(pkg)
             notifyInfo("Guardian Sentry Mode", "Requested removal of $pkg ($reason). Confirm in the system prompt.")

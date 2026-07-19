@@ -31,9 +31,11 @@ class AlertActionReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_KEEP -> {
                 AlertLog.write(context, "INFO", "User chose KEEP for $pkg")
+                FlaggedApps.setStatus(context, pkg, FlagStatus.KEPT)
             }
             ACTION_REMOVE -> {
                 AlertLog.write(context, "INFO", "User chose REMOVE for $pkg, launching uninstall")
+                FlaggedApps.setStatus(context, pkg, FlagStatus.REMOVAL_REQUESTED)
                 val uninstall = Intent(Intent.ACTION_DELETE, Uri.parse("package:$pkg"))
                 uninstall.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 context.startActivity(uninstall)

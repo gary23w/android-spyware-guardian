@@ -37,6 +37,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.checklistButton).setOnClickListener {
             startActivity(Intent(this, ChecklistActivity::class.java))
         }
+        findViewById<Button>(R.id.flaggedAppsButton).setOnClickListener {
+            startActivity(Intent(this, FlaggedAppsActivity::class.java))
+        }
 
         val settings = getSharedPreferences(GuardianPrefs.SETTINGS_FILE, Context.MODE_PRIVATE)
         sentrySwitch.isChecked = settings.getBoolean(GuardianPrefs.KEY_SENTRY_MODE, false)

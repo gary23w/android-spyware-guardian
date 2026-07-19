@@ -29,6 +29,10 @@ Anything new in any of these categories gets written to a log and, for the serio
 
 Open the app and tap **Settings Walkthrough** for a plain-language, one-by-one review of the security-relevant settings on your phone: screen lock, USB debugging, unknown sources, Play Protect, accessibility services, notification access, device admins, Guardian's own battery exemption, usage access, and root status. Each item shows its current state and a button that opens the right system settings screen to fix it, with a fallback if your OEM doesn't expose that exact screen.
 
+## Flagged Apps tab
+
+Notifications can get dismissed or missed. Tap **Flagged Apps** in the main screen for a persistent list of everything Guardian has ever flagged — spyware-indicator matches and hidden apps with dangerous permissions — each with the reason it was flagged, its current status, and three actions: **Keep**, **Remove** (opens Android's uninstall prompt), or **App Info** (opens the system App Info screen, useful for apps that can only be disabled rather than uninstalled, like some preinstalled system apps). Decisions you've already made stay visible so you can revisit them later.
+
 ## Where the spyware list comes from
 
 Guardian pulls the same indicator feeds used by [MVT (Mobile Verification Toolkit)](https://github.com/mvt-project/mvt), the forensics tool built by Amnesty International's Security Lab. Specifically it reads the index at [`mvt-project/mvt-indicators`](https://github.com/mvt-project/mvt-indicators/blob/main/indicators.yaml), which points at STIX2 threat-intel feeds covering NSO Pegasus, Predator, Candiru, RCS Lab, QuaDream, Cellebrite forensic tooling, and a large generic stalkerware list.

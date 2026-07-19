@@ -33,6 +33,10 @@
             android:name=".ChecklistActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".FlaggedAppsActivity"
+            android:exported="false" />
+
         <service
             android:name=".MonitorService"
             android:exported="false"
