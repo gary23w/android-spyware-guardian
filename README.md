@@ -47,6 +47,16 @@ Every 60 seconds, and immediately whenever a new app is installed:
 
 Anything new in any of these categories gets written to a log and, for the serious stuff, pops a notification.
 
+## Call recording, microphone, and camera watchers
+
+Guardian watches for call recording and covert mic/camera use through three complementary checks:
+
+- **Call recording capability correlation** — flags any app holding microphone access alongside call-awareness or screen/media-capture permissions. This is a static risk signal, not proof — mainstream apps like WhatsApp and Messenger legitimately hold this combination for their own calling features, and will show up here. Routed through the normal Keep/Remove review, not an urgent alert, precisely because it's common and expected for real calling apps.
+- **Concurrent call + recording detection** — while a call is active, Guardian checks whether a microphone recording session is running at the same time. Android does not let any third-party app (Guardian included) see *which* app is recording — that information is restricted to system-privileged apps only, no workaround exists short of root. This check can only say "something is recording during this call," never "app X is recording." Triggers the urgent alert.
+- **Live microphone and camera watchers** — using Android's own `AudioManager`/`CameraManager` availability callbacks, Guardian gets pushed an instant, real-time signal the moment any app's mic or camera activates, not just once every 60-second check cycle. Every activation is logged. The **urgent, sound+vibration alert is reserved for activation while your screen is off** — mic/camera use while you're actively using the phone is normal (calls, photos, voice assistant) and would make an "urgent" alert meaningless if it fired constantly. Activation while the screen is off is a much rarer, much more specific signal.
+
+**Honest limitation on the concurrent-call check:** it hasn't yet been validated against a real phone call to confirm Android's own call-audio pipeline doesn't itself register as a "recording session" and cause a false alarm on ordinary calls. If you get an urgent alert every single time you make or receive a call, that's this check being too broad — let it know and it'll get tuned down.
+
 ## Settings Walkthrough
 
 Open the app and tap **Settings Walkthrough** for a plain-language, one-by-one review of the security-relevant settings on your phone: screen lock, USB debugging, unknown sources, Play Protect, accessibility services, notification access, device admins, Guardian's own battery exemption, usage access, and root status. Each item shows its current state and a button that opens the right system settings screen to fix it, with a fallback if your OEM doesn't expose that exact screen.

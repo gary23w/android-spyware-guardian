@@ -15,10 +15,16 @@ import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraManager
+import android.media.AudioManager
+import android.media.AudioRecordingConfiguration
 import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import android.provider.Telephony
@@ -33,9 +39,13 @@ class MonitorService : Service() {
     private lateinit var prefs: SharedPreferences
     @Volatile private var running = false
     private var worker: Thread? = null
+    private var audioRecordingCallback: AudioManager.AudioRecordingCallback? = null
+    private var cameraAvailabilityCallback: CameraManager.AvailabilityCallback? = null
+    private val callbackHandler = Handler(Looper.getMainLooper())
 
     companion object {
         const val CHANNEL_ID = "guardian_monitor"
+        const val CRITICAL_CHANNEL_ID = "guardian_critical"
         const val NOTIF_ID = 1
         const val CHECK_INTERVAL_MS = 60_000L
 
@@ -59,8 +69,10 @@ class MonitorService : Service() {
         super.onCreate()
         prefs = getSharedPreferences(GuardianPrefs.STATE_FILE, Context.MODE_PRIVATE)
         createChannel()
+        createCriticalChannel()
         startForeground(NOTIF_ID, buildNotification())
         AlertLog.write(this, "INFO", "MonitorService started")
+        registerLiveWatchers()
         startLoop()
     }
 
@@ -74,6 +86,7 @@ class MonitorService : Service() {
     override fun onDestroy() {
         running = false
         worker?.interrupt()
+        unregisterLiveWatchers()
         AlertLog.write(this, "INFO", "MonitorService stopped")
         super.onDestroy()
     }
@@ -115,6 +128,8 @@ class MonitorService : Service() {
             checkRootIndicators()
             checkNetworkAnomalies()
             checkPatchStaleness()
+            checkCallRecordingRisk()
+            checkActiveCallRecording()
             checkForAppUpdate()
         } catch (e: Exception) {
             AlertLog.write(this, "ERROR", "Check cycle failed: ${e.message}")
@@ -453,6 +468,144 @@ class MonitorService : Service() {
         }
     }
 
+    private fun checkCallRecordingRisk() {
+        val pm = packageManager
+        val callAwareApps = (prefs.getStringSet("interception_receivers", emptySet()) ?: emptySet())
+            .mapNotNull { it.substringBefore(":").takeIf { pkg -> pkg.isNotBlank() } }
+            .toSet()
+
+        for (p in pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)) {
+            val appInfo = p.applicationInfo ?: continue
+            if ((appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0) continue
+
+            val requested = p.requestedPermissions ?: continue
+            val flags = p.requestedPermissionsFlags ?: continue
+            var hasRecordAudio = false
+            var hasMediaProjection = false
+            for (i in requested.indices) {
+                if (i >= flags.size) continue
+                if ((flags[i] and PackageInfo.REQUESTED_PERMISSION_GRANTED) == 0) continue
+                when (requested[i]) {
+                    "android.permission.RECORD_AUDIO" -> hasRecordAudio = true
+                    "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" -> hasMediaProjection = true
+                }
+            }
+
+            if (hasRecordAudio && (p.packageName in callAwareApps || hasMediaProjection)) {
+                handleThreatDetected(
+                    p.packageName,
+                    "Possible call recording capability: holds microphone access plus call-awareness or screen/media capture"
+                )
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun checkActiveCallRecording() {
+        try {
+            val tm = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+            if (tm.callState != TelephonyManager.CALL_STATE_OFFHOOK) return
+
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val configs = am.activeRecordingConfigurations
+            if (configs.isEmpty()) return
+
+            val lastAlertKey = "call_recording_last_alert"
+            val lastAlert = prefs.getLong(lastAlertKey, 0L)
+            if (System.currentTimeMillis() - lastAlert < 60_000L) return
+
+            AlertLog.write(
+                this, "CRITICAL",
+                "Active call with ${configs.size} concurrent audio recording session(s) detected"
+            )
+            superNotify(
+                "Guardian: possible call recording",
+                "A microphone recording session is active while a call is in progress. " +
+                    "Android blocks apps from seeing which app is doing it, but this is unusual. " +
+                    "Check Flagged Apps and recently installed apps with microphone access."
+            )
+            prefs.edit().putLong(lastAlertKey, System.currentTimeMillis()).apply()
+        } catch (e: Exception) {
+            AlertLog.write(this, "ERROR", "Active call recording check failed: ${e.message}")
+        }
+    }
+
+    // ---- live mic/camera watchers (push-based, not on the 60s poll cycle) ----
+
+    private fun isScreenOn(): Boolean {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return pm.isInteractive
+    }
+
+    private fun registerLiveWatchers() {
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val callback = object : AudioManager.AudioRecordingCallback() {
+                override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) {
+                    handleRecordingConfigChange(configs.size)
+                }
+            }
+            am.registerAudioRecordingCallback(callback, callbackHandler)
+            audioRecordingCallback = callback
+        } catch (e: Exception) {
+            AlertLog.write(this, "ERROR", "Could not register microphone watcher: ${e.message}")
+        }
+
+        try {
+            val cm = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val callback = object : CameraManager.AvailabilityCallback() {
+                override fun onCameraUnavailable(cameraId: String) {
+                    handleCameraActive(cameraId)
+                }
+            }
+            cm.registerAvailabilityCallback(callback, callbackHandler)
+            cameraAvailabilityCallback = callback
+        } catch (e: Exception) {
+            AlertLog.write(this, "ERROR", "Could not register camera watcher: ${e.message}")
+        }
+    }
+
+    private fun unregisterLiveWatchers() {
+        try {
+            audioRecordingCallback?.let {
+                (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioRecordingCallback(it)
+            }
+        } catch (e: Exception) {
+        }
+        try {
+            cameraAvailabilityCallback?.let {
+                (getSystemService(Context.CAMERA_SERVICE) as CameraManager).unregisterAvailabilityCallback(it)
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun handleRecordingConfigChange(count: Int) {
+        val screenOn = isScreenOn()
+        AlertLog.write(this, "INFO", "Microphone recording sessions changed: now $count active (screen ${if (screenOn) "on" else "off"})")
+        if (count > 0 && !screenOn) {
+            superNotify(
+                "Guardian: microphone active while screen is off",
+                "An app started recording audio while your screen was off. Android doesn't let Guardian " +
+                    "see which app it is, but this is unusual for normal use. Check Flagged Apps and " +
+                    "recently installed apps with microphone access."
+            )
+        }
+    }
+
+    private fun handleCameraActive(cameraId: String) {
+        val screenOn = isScreenOn()
+        AlertLog.write(this, "INFO", "Camera $cameraId became active (screen ${if (screenOn) "on" else "off"})")
+        if (!screenOn) {
+            superNotify(
+                "Guardian: camera active while screen is off",
+                "Camera $cameraId was just activated while your screen was off. Android doesn't let Guardian " +
+                    "see which app it is, but this is highly unusual for normal use. Check Flagged Apps and " +
+                    "recently installed apps with camera access."
+            )
+        }
+    }
+
     private fun checkForAppUpdate() {
         if (!UpdateChecker.shouldCheck(this)) return
         val apkFile = UpdateChecker.check(this) ?: return
@@ -477,7 +630,7 @@ class MonitorService : Service() {
         return decisions.getStringSet(GuardianPrefs.KEY_DECIDED, emptySet())?.contains(pkg) == true
     }
 
-    private fun handleThreatDetected(pkg: String, reason: String) {
+    private fun handleThreatDetected(pkg: String, reason: String, critical: Boolean = false) {
         FlaggedApps.record(this, pkg, reason)
         if (isDecided(pkg)) return
 
@@ -495,7 +648,7 @@ class MonitorService : Service() {
             launchUninstall(pkg)
             notifyInfo("Guardian Sentry Mode", "Requested removal of $pkg ($reason). Confirm in the system prompt.")
         } else {
-            notifyKeepRemove(pkg, reason)
+            notifyKeepRemove(pkg, reason, critical)
         }
     }
 
@@ -505,7 +658,7 @@ class MonitorService : Service() {
         startActivity(intent)
     }
 
-    private fun notifyKeepRemove(pkg: String, reason: String) {
+    private fun notifyKeepRemove(pkg: String, reason: String, critical: Boolean = false) {
         val decisions = getSharedPreferences(GuardianPrefs.DECISIONS_FILE, Context.MODE_PRIVATE)
         AlertActionReceiver.markDecided(decisions, pkg)
 
@@ -521,17 +674,37 @@ class MonitorService : Service() {
         val keepPending = PendingIntent.getBroadcast(this, pkg.hashCode(), keepIntent, flags)
         val removePending = PendingIntent.getBroadcast(this, pkg.hashCode() + 1, removeIntent, flags)
 
-        val notif = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Guardian: suspicious app found")
+        val channel = if (critical) CRITICAL_CHANNEL_ID else CHANNEL_ID
+        val title = if (critical) "Guardian: URGENT - possible call recording" else "Guardian: suspicious app found"
+        val builder = NotificationCompat.Builder(this, channel)
+            .setContentTitle(title)
             .setContentText("$pkg - $reason")
             .setStyle(NotificationCompat.BigTextStyle().bigText("$pkg - $reason"))
             .setSmallIcon(android.R.drawable.stat_sys_warning)
             .addAction(0, "Keep", keepPending)
             .addAction(0, "Remove", removePending)
             .setAutoCancel(true)
+        if (critical) {
+            builder.setPriority(NotificationCompat.PRIORITY_MAX)
+            builder.setDefaults(NotificationCompat.DEFAULT_ALL)
+        }
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(pkg.hashCode(), builder.build())
+    }
+
+    private fun superNotify(title: String, text: String) {
+        val notif = NotificationCompat.Builder(this, CRITICAL_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setAutoCancel(true)
             .build()
         val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(pkg.hashCode(), notif)
+        nm.notify((System.currentTimeMillis() % 100000).toInt(), notif)
     }
 
     // ---- notification plumbing ----
@@ -539,6 +712,21 @@ class MonitorService : Service() {
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, "Guardian Monitor", NotificationManager.IMPORTANCE_DEFAULT)
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(channel)
+        }
+    }
+
+    private fun createCriticalChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CRITICAL_CHANNEL_ID, "Guardian Critical Alerts", NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 400)
+                enableLights(true)
+                description = "Urgent alerts like possible call recording, shown with sound and vibration"
+            }
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
         }
